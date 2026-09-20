@@ -1,11 +1,38 @@
-﻿import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Document, Page, pdfjs } from 'react-pdf'
-import { ArrowLeft, Download, Bookmark, Flag, FileText, Check, Minus, Plus } from 'lucide-react'
-import { useVault, useWorkspace } from '../lib/workspace'
-import { useAuth } from '../lib/auth'
-import { api, apiError } from '../lib/api'
-import { Avatar, Badge, Button, Card, Empty, Modal, Skeleton } from '../components/ui'
-import { DataError } from './WorkspacePages'
-pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString()
-export default function ViewerPage(){const {id}=useParams();const {data,isPending,isError}=useVault();const {demo,saved,toggleSave,notify}=useWorkspace();const {user}=useAuth();const [report,setReport]=useState(false);const [reason,setReason]=useState('');const [busy,setBusy]=useState(false);const [page,setPage]=useState(1);const [pages,setPages]=useState(1);const [scale,setScale]=useState(1);const note=data?.notes.find(n=>n.id===id);if(isPending)return <Skeleton/>;if(isError)return <DataError/>;if(!note)return <Empty title="This note isn't here" hint="It may have been removed or isn't available to your account."><Link to="/notes" className="btn btn-primary">Browse notes</Link></Empty>;const available=!!note.fileUrl&&/^https?:\/\//i.test(note.fileUrl)&&!note.fileUrl.includes('.demo');const download=()=>{if(available)window.open(note.fileUrl,'_blank','noopener,noreferrer');else if(demo){const blob=new Blob([`${note.title}\n\nSAMPLE NOTE — NOT A COMPLETE COURSE DOCUMENT\n\n${note.description}\n\nShared by ${note.uploadedByName}\nSubject: ${note.subject}`],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='notevault-sample.txt';a.click();URL.revokeObjectURL(url);notify('Sample text downloaded','success')}else notify('This note has metadata only. File storage is not connected.','info')};const submitReport=async()=>{if(reason.trim().length<5)return;setBusy(true);try{if(!demo)await api.post('/reports',{noteId:note.id,reason});notify(demo?'Demo report recorded locally. Nothing was sent.':'Report sent for review','success');setReport(false);setReason('')}catch(e){notify(apiError(e),'error')}finally{setBusy(false)}};return <div className="page-stack"><Link to="/notes" className="back-link"><ArrowLeft size={15}/>Back to notes</Link><header className="page-head"><div><div className="note-tags"><span>{note.subject}</span><span>{note.classId?.toUpperCase()}</span></div><h1>{note.title}</h1><p>{note.description}</p></div></header><div className="viewer-grid"><Card className="document-viewer"><div className="viewer-toolbar"><span><FileText size={15}/>{note.fileName}</span><div><button className="icon-btn" onClick={()=>setScale(Math.max(.6,scale-.1))} aria-label="Zoom out"><Minus size={16}/></button><span>{Math.round(scale*100)}%</span><button className="icon-btn" onClick={()=>setScale(Math.min(1.4,scale+.1))} aria-label="Zoom in"><Plus size={16}/></button></div></div><div className="pdf-area">{available&&note.fileName?.toLowerCase().endsWith('.pdf')?<Document file={note.fileUrl} onLoadSuccess={({numPages})=>setPages(numPages)} error={<Empty title="Preview unavailable" hint="The file server may not allow browser previews."/>}><Page pageNumber={page} width={Math.min(window.innerWidth-80,590)*scale} renderTextLayer={false} renderAnnotationLayer={false}/></Document>:<div className="sample-paper" style={{fontSize:`${scale}em`}}><div className="paper-heading">NOTEVault / STUDY NOTES <span>{demo?'SAMPLE PREVIEW':'NOTE DETAILS'}</span></div><p className="eyebrow">{note.subject}</p><h2>{note.title}</h2><div className="paper-line"/><h3>Overview</h3><p>{note.description}</p>{demo?<><h3>01 / The big picture</h3><p>Great understanding starts with a strong foundation. Break each concept into its essential parts, connect it to what you already know, and explain it in your own words.</p><blockquote>Don't just memorize the answer. Understand the question.</blockquote><h3>02 / Make it stick</h3><ul><li>Identify the main idea and its key definitions.</li><li>Work through an example without looking at the solution.</li><li>Return to the difficult parts after a short break.</li></ul><div className="paper-foot">This is a sample preview for the demo workspace.</div></>:<p className="info-banner">File preview is unavailable. This backend stores note metadata; file storage and signed downloads are not configured.</p>}</div>}</div>{available&&<div className="pagination"><Button variant="secondary" disabled={page===1} onClick={()=>setPage(page-1)}>Previous</Button><span>{page} / {pages}</span><Button variant="secondary" disabled={page===pages} onClick={()=>setPage(page+1)}>Next</Button></div>}</Card><aside className="viewer-meta"><Card className="panel"><Badge tone="success"><Check size={12}/> {note.trusted?'Trusted contributor':'Reviewed note'}</Badge><h3>A little more about this note</h3><div className="meta-author"><Avatar name={note.uploadedByName||'Contributor'}/><div><strong>{note.uploadedByName||'Contributor'}</strong><small>Contributor</small></div></div><dl><dt>Subject</dt><dd>{note.subject}</dd><dt>Class</dt><dd>{data?.classes.find(c=>c.id===note.classId)?.name||'General'}</dd><dt>Uploaded</dt><dd>{note.createdAt?new Date(note.createdAt).toLocaleDateString():'Not available'}</dd><dt>File</dt><dd>{note.fileName||'Not attached'}</dd><dt>File hash</dt><dd className="muted">Not supplied by server</dd></dl><div className="chips">{note.tags?.map(t=><span key={t}>{t}</span>)}</div><Button className="full-width" onClick={download}><Download size={16}/>{demo?'Download sample':available?'Download note':'Check file availability'}</Button><Button className="full-width" variant="secondary" onClick={()=>toggleSave(note.id)}><Bookmark size={16}/>{saved.includes(note.id)?'Saved to your notes':'Save for later'}</Button></Card><button className="report-button" onClick={()=>{if(!demo&&!user)notify('Sign in to report a note.');else setReport(true)}}><Flag size={14}/>Something not right? Report this note</button></aside></div><Modal open={report} onClose={()=>setReport(false)} title="Help keep this space trustworthy"><p className="muted">Tell us what needs a second look. A moderator will review your report.</p><label className="field"><span>Reason</span><textarea rows={4} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Describe the issue (at least 5 characters)"/></label><Button disabled={busy||reason.trim().length<5} onClick={submitReport}>{busy?'Sending…':'Submit report'}</Button></Modal></div>}
+import { useNote } from '../api/useNotesApi'
+import { NoteViewer } from '../features/viewer/NoteViewer'
+import { Skeleton, Empty, Button } from '../components/ui'
+import { ArrowLeft, BookOpen } from 'lucide-react'
+
+export default function ViewerPage() {
+  const { id } = useParams<{ id: string }>()
+  const { data: note, isLoading, isError } = useNote(id)
+
+  if (isLoading) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 space-y-6">
+        <Skeleton rows={3} />
+      </div>
+    )
+  }
+
+  if (isError || !note) {
+    return (
+      <div className="max-w-md mx-auto my-16">
+        <Empty
+          title="Document Not Found"
+          hint="The requested study note could not be retrieved. It may have been relocated, deleted, or requires review."
+          icon={BookOpen}
+        >
+          <Link to="/notes">
+            <Button variant="secondary" size="sm" leftIcon={<ArrowLeft className="w-3.5 h-3.5" />}>
+              Back to Catalog
+            </Button>
+          </Link>
+        </Empty>
+      </div>
+    )
+  }
+
+  return <NoteViewer note={note} />
+}

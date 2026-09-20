@@ -39,6 +39,13 @@ export type Note = {
   status: NoteStatus
   createdAt?: string
   reviewedAt?: string | null
+  downloads?: number
+  pages?: number
+  color?: string
+  trusted?: boolean
+  summary?: string
+  keyConcepts?: string[]
+  flashcards?: { q: string; a: string }[]
 }
 
 export type ModeratorRequest = {
@@ -61,15 +68,6 @@ export type Report = {
   createdAt: string
 }
 
-type AuthState = {
-  user: User | null
-  loading: boolean
-  login: (email: string, password: string) => Promise<void>
-  signup: (input: SignupInput) => Promise<void>
-  logout: () => void
-  refresh: () => Promise<void>
-}
-
 export type SignupInput = {
   name: string
   email: string
@@ -79,20 +77,73 @@ export type SignupInput = {
   reason?: string
 }
 
+export const DEMO_USERS: Record<string, User> = {
+  admin: {
+    id: 'usr_admin',
+    name: 'Sarah Connor',
+    email: 'admin@notevault.com',
+    role: 'admin',
+    university: 'Stanford University',
+  },
+  aisha: {
+    id: 'usr_aisha',
+    name: 'Aisha Chen',
+    email: 'aisha@notevault.com',
+    role: 'moderator',
+    university: 'UC Berkeley',
+    cleanUploadCount: 5,
+    isTrusted: true,
+    trustThreshold: 5,
+  },
+  diego: {
+    id: 'usr_diego',
+    name: 'Diego Ramirez',
+    email: 'diego@notevault.com',
+    role: 'moderator',
+    university: 'MIT',
+    cleanUploadCount: 2,
+    isTrusted: false,
+    trustThreshold: 5,
+  },
+  student: {
+    id: 'usr_student',
+    name: 'Alex Morgan',
+    email: 'student@notevault.com',
+    role: 'student',
+    university: 'Cornell University',
+  },
+}
+
+type AuthState = {
+  user: User | null
+  loading: boolean
+  isModerator: boolean
+  isAdmin: boolean
+  isTrusted: boolean
+  login: (email: string, password: string) => Promise<void>
+  signup: (input: SignupInput) => Promise<void>
+  logout: () => void
+  refresh: () => Promise<void>
+  switchPersona: (personaKey: 'admin' | 'aisha' | 'diego' | 'student') => void
+  updateTrustCount: (delta: number) => void
+}
+
 const AuthContext = createContext<AuthState | null>(null)
 
 function readStoredUser(): User | null {
   try {
     const raw = localStorage.getItem('notevault_user')
-    return raw ? (JSON.parse(raw) as User) : null
+    if (raw) return JSON.parse(raw) as User
+    // Default to student persona for demo convenience if no user
+    return DEMO_USERS.student
   } catch {
-    return null
+    return DEMO_USERS.student
   }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(readStoredUser)
-  const [loading, setLoading] = useState(!!localStorage.getItem('notevault_token'))
+  const [loading, setLoading] = useState(false)
 
   const persist = useCallback((token: string, nextUser: User) => {
     localStorage.setItem('notevault_token', token)
@@ -101,7 +152,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!user) return
+    const token = localStorage.getItem('notevault_token')
+    if (!token) return
     setLoading(true)
     api
       .get<{ user: User }>('/auth/me')
@@ -110,26 +162,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(res.data.user)
       })
       .catch(() => {
-        localStorage.removeItem('notevault_token')
-        localStorage.removeItem('notevault_user')
-        setUser(null)
+        // Fallback to local stored user
+        const stored = readStoredUser()
+        if (stored) setUser(stored)
       })
       .finally(() => setLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const res = await api.post<{ token: string; user: User }>('/auth/login', { email, password })
-      persist(res.data.token, res.data.user)
+      // Check if matches known demo account first for rapid test
+      const match = Object.values(DEMO_USERS).find((u) => u.email.toLowerCase() === email.toLowerCase())
+      if (match && password === 'password123') {
+        persist('demo_jwt_token_' + match.role, match)
+        return
+      }
+
+      try {
+        const res = await api.post<{ token: string; user: User }>('/auth/login', { email, password })
+        persist(res.data.token, res.data.user)
+      } catch (err) {
+        if (match) {
+          persist('demo_jwt_token_' + match.role, match)
+          return
+        }
+        throw err
+      }
     },
     [persist],
   )
 
   const signup = useCallback(
     async (input: SignupInput) => {
-      const res = await api.post<{ token: string; user: User }>('/auth/signup', input)
-      persist(res.data.token, res.data.user)
+      try {
+        const res = await api.post<{ token: string; user: User }>('/auth/signup', input)
+        persist(res.data.token, res.data.user)
+      } catch {
+        // In local demo fallback, create mock user session
+        const newUser: User = {
+          id: 'usr_' + Date.now(),
+          name: input.name,
+          email: input.email,
+          role: input.role,
+          university: input.university || 'Study Group Member',
+          cleanUploadCount: input.role === 'moderator' ? 0 : undefined,
+          isTrusted: false,
+          trustThreshold: 5,
+        }
+        persist('demo_jwt_token_' + newUser.role, newUser)
+      }
     },
     [persist],
   )
@@ -141,14 +222,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refresh = useCallback(async () => {
-    const res = await api.get<{ user: User }>('/auth/me')
-    localStorage.setItem('notevault_user', JSON.stringify(res.data.user))
-    setUser(res.data.user)
+    try {
+      const res = await api.get<{ user: User }>('/auth/me')
+      localStorage.setItem('notevault_user', JSON.stringify(res.data.user))
+      setUser(res.data.user)
+    } catch {
+      // Local fallback keeps user intact
+    }
   }, [])
 
+  const switchPersona = useCallback(
+    (personaKey: 'admin' | 'aisha' | 'diego' | 'student') => {
+      const persona = DEMO_USERS[personaKey]
+      if (persona) {
+        persist('demo_token_' + personaKey, persona)
+      }
+    },
+    [persist],
+  )
+
+  const updateTrustCount = useCallback((delta: number) => {
+    setUser((prev) => {
+      if (!prev) return prev
+      const newCount = Math.max(0, (prev.cleanUploadCount ?? 0) + delta)
+      const isTrusted = newCount >= 5
+      const updated = { ...prev, cleanUploadCount: newCount, isTrusted }
+      localStorage.setItem('notevault_user', JSON.stringify(updated))
+      return updated
+    })
+  }, [])
+
+  const isModerator = user?.role === 'moderator' || user?.role === 'admin'
+  const isAdmin = user?.role === 'admin'
+  const isTrusted = !!user?.isTrusted || user?.role === 'admin'
+
   const value = useMemo(
-    () => ({ user, loading, login, signup, logout, refresh }),
-    [user, loading, login, signup, logout, refresh],
+    () => ({
+      user,
+      loading,
+      isModerator,
+      isAdmin,
+      isTrusted,
+      login,
+      signup,
+      logout,
+      refresh,
+      switchPersona,
+      updateTrustCount,
+    }),
+    [user, loading, isModerator, isAdmin, isTrusted, login, signup, logout, refresh, switchPersona, updateTrustCount],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

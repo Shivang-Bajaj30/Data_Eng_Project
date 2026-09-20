@@ -1,13 +1,53 @@
-﻿import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, FileText, X, ShieldCheck, ArrowRight, Check } from 'lucide-react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
 import { useAuth } from '../lib/auth'
-import { useVault, useWorkspace } from '../lib/workspace'
-import { api, apiError } from '../lib/api'
-import { Button, Card, Empty } from '../components/ui'
-const schema=z.object({title:z.string().min(3,'Give your note a descriptive title'),description:z.string().min(20,'Describe your note in at least 20 characters'),subject:z.string().min(1,'Choose a subject'),classId:z.string(),tags:z.string()})
-type Values=z.infer<typeof schema>
-export default function UploadPage(){const {user,loading,refresh}=useAuth();const {demo,notify}=useWorkspace();const {data}=useVault();const [file,setFile]=useState<File|null>(null);const [drag,setDrag]=useState(false);const [progress,setProgress]=useState(0);const picker=useRef<HTMLInputElement>(null);const {register,handleSubmit,reset,formState:{errors,isSubmitting}}=useForm<Values>({resolver:zodResolver(schema),defaultValues:{title:'',description:'',subject:'',classId:'',tags:''}});if(loading)return <p>Loading your account…</p>;if(!demo&&user?.role!=='moderator')return <Empty title="A space for contributors" hint="Uploading notes requires an approved moderator account."><Link className="btn btn-primary" to="/signup">Become a contributor <ArrowRight size={16}/></Link></Empty>;const choose=(f?:File)=>{if(!f)return;if(f.size>25*1024*1024){notify('Choose a file smaller than 25 MB.','error');return}if(!/\.(pdf|pptx?|docx?|png|jpe?g)$/i.test(f.name)){notify('Please choose a PDF, presentation, document, or image.','error');return}setFile(f)};const submit=async(v:Values)=>{if(!file){notify('Choose a file first.','error');return}setProgress(15);try{if(!demo){await api.post('/notes',{...v,classId:v.classId||null,tags:v.tags.split(',').map(t=>t.trim()).filter(Boolean),fileName:file.name});await refresh()}setProgress(100);notify(demo?'Demo submission complete. File was not uploaded.':'Note metadata submitted for review. File storage is not connected.','success');reset();setFile(null)}catch(e){notify(apiError(e),'error');setProgress(0)}};return <div className="page-stack upload-page"><div className="breadcrumb">Workspace <span>/</span> Upload notes</div><header className="page-head"><div><div className="eyebrow">GOOD KNOWLEDGE GOES FURTHER</div><h1>Share a little clarity.</h1><p>Your notes could be someone else's lightbulb moment.</p></div></header><div className={`info-banner ${user?.isTrusted?'success':''}`}><ShieldCheck size={20}/><div><strong>{user?.isTrusted?'Your upload will be published instantly':'A little review goes a long way'}</strong><p>{user?.isTrusted?'Trusted contributions help the whole community learn.':'This will be reviewed by an admin before appearing in the library.'}</p></div></div><div className="upload-columns"><Card className="panel"><form onSubmit={handleSubmit(submit)}><input ref={picker} type="file" hidden accept=".pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg" onChange={e=>choose(e.target.files?.[0])}/><div role="button" tabIndex={0} className={`dropzone ${drag?'drag':''}`} onClick={()=>picker.current?.click()} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();picker.current?.click()}}} onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);choose(e.dataTransfer.files[0])}}><span className="upload-icon">{file?<FileText size={26}/>:<Upload size={26}/>}</span><h3>{file?file.name:'Drop your notes here'}</h3><p>{file?`${(file.size/1024).toFixed(0)} KB · Click to replace`:'or click to browse your files'}</p><small>PDF, PPT, DOC, JPG, PNG · Up to 25 MB</small></div><p className="helper">{demo?'Demo mode: files stay on your device.':'This server currently saves metadata only. Your file contents will not be uploaded until file storage is connected.'}</p><div className="form-grid"><label className="field full"><span>Note title</span><input {...register('title')} placeholder="Give your notes a good name"/>{errors.title&&<small className="field-error">{errors.title.message}</small>}</label><label className="field full"><span>Description</span><textarea {...register('description')} rows={3} placeholder="What does this cover? What makes it useful?"/>{errors.description&&<small className="field-error">{errors.description.message}</small>}</label><label className="field"><span>Class</span><select {...register('classId')}><option value="">Choose a class (optional)</option>{data?.classes.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label><label className="field"><span>Subject</span><input {...register('subject')} placeholder="e.g. Computer Science"/>{errors.subject&&<small className="field-error">{errors.subject.message}</small>}</label><label className="field full"><span>Tags</span><input {...register('tags')} placeholder="algorithms, exam prep, lecture notes"/><small className="helper">Separate tags with commas.</small></label></div>{progress>0&&<div className="upload-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Submission progress"><i style={{width:`${progress}%`}}/></div>}<Button className="full-width" type="submit" disabled={isSubmitting}>{isSubmitting?'Submitting…':demo?'Try a demo submission':'Submit note metadata'}<ArrowRight size={16}/></Button></form></Card><aside className="upload-guide"><span className="eyebrow">A NOTE ON GOOD NOTES</span><h2>A little thought<br/>makes a big difference.</h2>{['Use a clear, descriptive title.','Make sure the text is easy to read.','Add a subject and helpful tags.','Only share work you have permission to share.'].map(t=><p key={t}><Check size={16}/>{t}</p>)}<div className="study-tip"><ShieldCheck size={22}/><h3>Built on trust.</h3><p>Consistent, thoughtful contributions help you become a trusted moderator.</p></div></aside></div></div>}
+import { TrustProgressWidget } from '../features/upload/TrustProgressWidget'
+import { DropzoneUploader } from '../features/upload/DropzoneUploader'
+import { UploadHistoryTable } from '../features/upload/UploadHistoryTable'
+import { ArrowLeft } from 'lucide-react'
+import { Badge } from '../components/ui'
+
+export default function UploadPage() {
+  const { isTrusted } = useAuth()
+
+  return (
+    <div className="space-y-8 max-w-5xl mx-auto pb-12">
+      {/* Top Header Card with Subtle Color Wash */}
+      <div className="p-6 rounded-2xl border border-amber-200/80 dark:border-amber-900/40 bg-gradient-to-r from-amber-50/60 via-rose-50/30 to-indigo-50/40 dark:from-amber-950/20 dark:via-rose-950/15 dark:to-indigo-950/20 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono px-2.5 py-0.5 rounded-full bg-amber-100/90 dark:bg-amber-950/70 border border-amber-300/80 dark:border-amber-800/60 shadow-2xs">
+              MODERATOR UPLOAD PORTAL
+            </span>
+            <Badge tone={isTrusted ? 'success' : 'warning'}>
+              {isTrusted ? '✨ Auto-Publish Active' : '🛡️ Review Gated'}
+            </Badge>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-950 dark:text-zinc-50 mt-1.5">
+            Share High-Trust Course Notes
+          </h1>
+          <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 mt-1 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            Contribute peer-verified lecture syntheses and exam guides. Unlocks instant publishing at 5 clean approvals.
+          </p>
+        </div>
+
+        <Link
+          to="/notes"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 dark:bg-zinc-800 dark:hover:bg-zinc-750 dark:text-indigo-300 text-xs font-semibold border border-indigo-200 dark:border-indigo-800/80 transition-all shadow-xs shrink-0 self-start sm:self-center"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          View Catalog
+        </Link>
+      </div>
+
+      {/* Trust Progress Bar Widget (X/5 Approvals Tracker) */}
+      <TrustProgressWidget />
+
+      {/* Dropzone & Metadata Upload Form */}
+      <DropzoneUploader />
+
+      {/* Upload History Table (Moderator's Submissions & Review Status) */}
+      <UploadHistoryTable />
+    </div>
+  )
+}

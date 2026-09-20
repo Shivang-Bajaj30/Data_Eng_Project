@@ -1,7 +1,199 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Search, Sparkles, ArrowUpRight, ArrowRight, X, Send, FileText } from 'lucide-react'
-import { useVault } from '../lib/workspace'
-import { Button, Badge, Empty, Skeleton, Input } from '../components/ui'
-import { DataError } from './WorkspacePages'
-export default function SearchPage(){const {data,isPending,isError}=useVault();const [params,setParams]=useSearchParams();const [input,setInput]=useState(params.get('q')||'');const query=params.get('q')||'';const [history,setHistory]=useState<string[]>(()=>{try{return JSON.parse(localStorage.getItem('nv-history')||'[]')}catch{return []}});const [chat,setChat]=useState(false);const [question,setQuestion]=useState('');const [messages,setMessages]=useState<string[]>([]);const search=(q:string)=>{setInput(q);setParams(q?{q}:{});if(q.trim()){const h=[q,...history.filter(x=>x!==q)].slice(0,4);setHistory(h);localStorage.setItem('nv-history',JSON.stringify(h))}};const terms=query.toLowerCase().split(/\s+/).filter(Boolean);const results=(data?.notes||[]).map(n=>({...n,score:terms.length?terms.filter(t=>`${n.title} ${n.description} ${n.subject}`.toLowerCase().includes(t)).length/terms.length:0})).filter(n=>n.score>0).sort((a,b)=>b.score-a.score);const highlight=(text:string)=>{if(!terms.length)return text;const escaped=terms.map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');return text.split(new RegExp(`(${escaped})`,'gi')).map((s,i)=>terms.includes(s.toLowerCase())?<mark key={i}>{s}</mark>:s)};return <div className="page-stack search-page"><div className="breadcrumb">Workspace <span>/</span> AI search</div><section className="search-hero"><span className="search-emblem"><Sparkles size={27}/></span><Badge tone="accent">A LITTLE CURIOSITY GOES A LONG WAY</Badge><h1>What are you curious about?</h1><p>Find the notes that help it all make sense.</p><form className="large-search" onSubmit={e=>{e.preventDefault();search(input)}}><Search size={22}/><input value={input} onChange={e=>setInput(e.target.value)} placeholder="Try 'quantum entanglement basics'" aria-label="Search notes by topic"/><button className="btn btn-primary" aria-label="Search" type="submit"><ArrowRight size={20}/></button></form><p className="helper">Keyword search is available now. Semantic AI search is coming soon.</p><div className="chips search-chips">{(history.length?history:['data structures','linear algebra','quantum']).map(h=><button key={h} onClick={()=>search(h)}>{h}<ArrowUpRight size={12}/></button>)}</div></section>{query&&<section><div className="section-heading"><h2>{results.length} results for “{query}”</h2><Button variant="secondary" onClick={()=>setChat(true)}><Sparkles size={15}/>Ask AI</Button></div>{isPending?<Skeleton/>:isError?<DataError/>:!results.length?<Empty title="Let's try another angle" hint="Try a shorter phrase, a subject name, or a different keyword."/>:<div className="search-results">{results.map(n=><article className="card search-result" key={n.id}><span className={`stat-icon ${n.color||'lavender'}`}><FileText size={23}/></span><div><div className="note-tags"><span>{n.subject}</span><span>{n.fileName?.split('.').pop()?.toUpperCase()}</span></div><Link to={`/notes/${n.id}`}><h3>{highlight(n.title)}</h3></Link><p>{highlight(n.description)}</p><div className="relevance"><div><i style={{width:`${Math.round(n.score*100)}%`}}/></div><small>{Math.round(n.score*100)}% keyword match</small></div></div><Link aria-label={`Open ${n.title}`} to={`/notes/${n.id}`}><ArrowUpRight size={19}/></Link></article>)}</div>}</section>}{chat&&<aside className="chat-panel" aria-label="AI assistant"><header><span><Sparkles size={18}/>Your study companion</span><button aria-label="Close AI panel" className="icon-btn" onClick={()=>setChat(false)}><X size={19}/></button></header><div className="chat-body"><Badge tone="warning">Preview · AI not connected</Badge><h3>A little help with your next big idea.</h3><p>The backend does not yet provide an AI answer endpoint. You can explore matching notes while this feature is being built.</p>{messages.map((m,i)=><div className="chat-message" key={i}>{m}</div>)}</div><form onSubmit={e=>{e.preventDefault();if(question.trim()){setMessages([...messages,question,'AI answers are not available yet. Try this question in the notes search.']);setQuestion('')}}}><Input value={question} onChange={e=>setQuestion(e.target.value)} placeholder="Ask about your notes…" aria-label="Question"/><Button type="submit" aria-label="Send question"><Send size={17}/></Button></form></aside>}</div>}
+import { Search, Sparkles, ArrowUpRight, BookOpen } from 'lucide-react'
+import { useNotes } from '../api/useNotesApi'
+import { Button, Badge, Card, Empty, Skeleton } from '../components/ui'
+
+export default function SearchPage() {
+  const { data: notes = [], isLoading } = useNotes()
+  const [params, setParams] = useSearchParams()
+
+  const [input, setInput] = useState(params.get('q') || '')
+  const query = params.get('q') || ''
+
+  const handleSearch = (searchTerm: string) => {
+    setInput(searchTerm)
+    if (searchTerm.trim()) {
+      setParams({ q: searchTerm.trim() })
+    } else {
+      setParams({})
+    }
+  }
+
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+
+  const results = notes
+    .map((note) => {
+      if (!terms.length) return { ...note, score: 0.85 }
+      const text = `${note.title} ${note.description} ${note.subject} ${(note.tags || []).join(' ')}`.toLowerCase()
+      let matches = 0
+      for (const t of terms) {
+        if (text.includes(t)) matches++
+      }
+      const score = matches > 0 ? Math.min(0.98, 0.6 + (matches / terms.length) * 0.38) : 0
+      return { ...note, score }
+    })
+    .filter((n) => (terms.length ? n.score > 0 : true))
+    .sort((a, b) => b.score - a.score)
+
+  return (
+    <div className="space-y-8 max-w-5xl mx-auto pb-12">
+      {/* Search Header */}
+      <div className="text-center py-6 space-y-3">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">
+          <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span>AI-POWERED CONCEPT RETRIEVAL</span>
+        </div>
+
+        <h1 className="text-3xl sm:text-4xl font-bold font-serif tracking-tight text-stone-900 dark:text-zinc-100">
+          Find understanding, not just keywords.
+        </h1>
+        <p className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 max-w-lg mx-auto">
+          Query by algorithm, equation, or theoretical proof. NoteVault retrieves relevant peer notes with instant AI study synthesis.
+        </p>
+
+        {/* Large Search Input */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            handleSearch(input)
+          }}
+          className="max-w-2xl mx-auto pt-2"
+        >
+          <div className="relative flex items-center shadow-md rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 p-1.5 transition-all focus-within:ring-2 focus-within:ring-indigo-500">
+            <Search className="w-5 h-5 text-stone-400 dark:text-zinc-500 ml-3 shrink-0" />
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="e.g. Dijkstra binary heaps, normalization BCNF, or Maxwell equations..."
+              className="w-full px-3 py-2.5 text-xs sm:text-sm bg-transparent border-0 focus:outline-none text-stone-900 dark:text-zinc-100 placeholder-stone-400"
+            />
+            <Button type="submit" variant="primary" size="md">
+              Search Notes
+            </Button>
+          </div>
+        </form>
+
+        {/* Recommended Sample Queries */}
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+          <span className="text-[11px] text-stone-400 dark:text-zinc-500">Try searching:</span>
+          {[
+            'Data structures algorithms',
+            'Eigenvalues linear algebra',
+            'Relational normalization BCNF',
+            'Maxwell equations flux',
+            'Cellular respiration Krebs cycle',
+          ].map((sample) => (
+            <button
+              key={sample}
+              type="button"
+              onClick={() => handleSearch(sample)}
+              className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-stone-100 dark:bg-zinc-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-300 text-stone-600 dark:text-zinc-400 transition-colors"
+            >
+              {sample}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Results Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between pb-2 border-b border-stone-200/80 dark:border-zinc-800">
+          <span className="text-xs font-semibold text-stone-900 dark:text-zinc-100">
+            {query ? `Search Results for "${query}"` : 'All Study Documents'}
+          </span>
+          <Badge tone="accent">
+            {results.length} result{results.length === 1 ? '' : 's'}
+          </Badge>
+        </div>
+
+        {isLoading ? (
+          <Skeleton rows={4} />
+        ) : results.length === 0 ? (
+          <Empty
+            title="No direct concept match"
+            hint="Try searching with broader academic terminology, or browse by registered course classes."
+            icon={BookOpen}
+          />
+        ) : (
+          <div className="space-y-4">
+            {results.map((note) => (
+              <Card
+                key={note.id}
+                className="p-5 border-stone-200/80 dark:border-zinc-800 hover:shadow-sm transition-all"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div className="space-y-2 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                        {note.classId?.toUpperCase() || note.subject}
+                      </span>
+                      <span className="text-xs text-stone-400">·</span>
+                      <span className="text-xs text-stone-500 dark:text-zinc-400 font-medium">
+                        {note.subject}
+                      </span>
+                    </div>
+
+                    <Link
+                      to={`/notes/${note.id}`}
+                      className="block group-hover:text-indigo-600 dark:group-hover:text-indigo-400"
+                    >
+                      <h3 className="text-base font-bold text-stone-900 dark:text-zinc-100 leading-snug">
+                        {note.title}
+                      </h3>
+                    </Link>
+
+                    <p className="text-xs text-stone-600 dark:text-zinc-300 leading-relaxed">
+                      {note.description}
+                    </p>
+
+                    {/* AI Executive Concept Snippet */}
+                    {note.summary && (
+                      <div className="p-3 rounded-lg bg-stone-50 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-700/60 text-xs text-stone-700 dark:text-zinc-300">
+                        <div className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mb-0.5">
+                          <Sparkles className="w-3 h-3" />
+                          AI Key Insight:
+                        </div>
+                        <p className="line-clamp-2 text-[11px]">{note.summary}</p>
+                      </div>
+                    )}
+
+                    {/* Tags & Relevance */}
+                    <div className="flex flex-wrap items-center gap-4 pt-1 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-stone-400">Semantic Relevance:</span>
+                        <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                          {Math.round(note.score * 100)}%
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        {(note.tags || []).map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-2 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 text-[10px] text-stone-500 dark:text-zinc-400"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex sm:flex-col items-center justify-between sm:justify-center gap-2">
+                    <Link to={`/notes/${note.id}`}>
+                      <Button variant="secondary" size="sm" rightIcon={<ArrowUpRight className="w-3.5 h-3.5" />}>
+                        Study Note
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

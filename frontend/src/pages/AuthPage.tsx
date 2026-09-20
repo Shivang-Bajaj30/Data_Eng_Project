@@ -1,14 +1,32 @@
-﻿import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { ArrowLeft, ArrowRight, ShieldCheck, Eye, EyeOff } from 'lucide-react'
-import { Logo } from '../layouts/AppLayout'
-import { useAuth } from '../lib/auth'
-import { apiError } from '../lib/api'
-import { useWorkspace } from '../lib/workspace'
-import { Button } from '../components/ui'
-const schema=z.object({name:z.string(),email:z.email('Enter a valid email address'),password:z.string().min(8,'Use at least 8 characters'),university:z.string(),reason:z.string()})
-type Values=z.infer<typeof schema>
-export default function AuthPage({signup=false}:{signup?:boolean}){const {login,signup:registerUser}=useAuth();const {setDemo}=useWorkspace();const navigate=useNavigate();const [role,setRole]=useState<'student'|'moderator'>('student');const [error,setError]=useState('');const [visible,setVisible]=useState(false);const {register,handleSubmit,formState:{errors,isSubmitting}}=useForm<Values>({resolver:zodResolver(schema),defaultValues:{name:'',email:'',password:'',university:'',reason:''}});const submit=async(v:Values)=>{setError('');if(signup&&!v.name.trim()){setError('Please enter your full name.');return}try{if(signup)await registerUser({...v,role});else await login(v.email,v.password);setDemo(false);navigate('/home')}catch(e){setError(apiError(e))}};return <div className="auth-page"><header><Logo/><Link to="/"><ArrowLeft size={15}/>Back to home</Link></header><main className="auth-card card"><span className="auth-mark"><ShieldCheck size={25}/></span><h1>{signup?'A brighter semester starts here.':'Welcome back.'}</h1><p>{signup?'Your ideas belong in good company.':'Your next breakthrough is waiting for you.'}</p>{signup&&<><div className="role-toggle"><button className={role==='student'?'active':''} onClick={()=>setRole('student')} type="button">Student</button><button className={role==='moderator'?'active':''} onClick={()=>setRole('moderator')} type="button">Moderator</button></div>{role==='moderator'&&<p className="helper">Moderator access requires admin approval.</p>}</>}<form onSubmit={handleSubmit(submit)} noValidate>{signup&&<label className="floating-field"><input placeholder=" " autoComplete="name" {...register('name')}/><span>Full name</span></label>}<label className="floating-field"><input placeholder=" " type="email" autoComplete="email" aria-invalid={!!errors.email} {...register('email')}/><span>Email address</span></label>{errors.email&&<small className="field-error">{errors.email.message}</small>}<label className="floating-field password-field"><input placeholder=" " type={visible?'text':'password'} autoComplete={signup?'new-password':'current-password'} aria-invalid={!!errors.password} {...register('password')}/><span>Password</span><button type="button" className="icon-btn" aria-label={visible?'Hide password':'Show password'} onClick={()=>setVisible(!visible)}>{visible?<EyeOff size={17}/>:<Eye size={17}/>}</button></label>{errors.password&&<small className="field-error">{errors.password.message}</small>}{signup&&<><label className="floating-field"><input placeholder=" " {...register('university')}/><span>University (optional)</span></label>{role==='moderator'&&<label className="field"><span>Why would you like to contribute?</span><textarea {...register('reason')} rows={3} placeholder="Tell us a little about yourself…"/></label>}</>}{error&&<p className="error-banner" role="alert">{error}</p>}<Button type="submit" disabled={isSubmitting} className="full-width">{isSubmitting?'Connecting…':signup?'Create your account':'Sign in'}<ArrowRight size={16}/></Button></form><p className="auth-switch">{signup?'Already part of the community?':'New around here?'} <Link to={signup?'/login':'/signup'}>{signup?'Sign in':'Create an account'}</Link></p></main><p className="auth-foot">A little sharing. A lot of learning.</p></div>}
+import { Link } from 'react-router-dom'
+import { AuthCard } from '../features/auth/AuthCard'
+import { ArrowLeft, BookOpen } from 'lucide-react'
+
+export default function AuthPage({ signup = false }: { signup?: boolean }) {
+  return (
+    <div className="min-h-screen bg-stone-50/80 dark:bg-zinc-950 flex flex-col justify-between py-8 px-4 selection:bg-indigo-100 dark:selection:bg-indigo-900/40">
+      <header className="max-w-md w-full mx-auto flex items-center justify-between pb-6">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-stone-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Home
+        </Link>
+
+        <div className="flex items-center gap-1.5 font-bold text-sm text-stone-900 dark:text-zinc-100">
+          <BookOpen className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+          <span>NoteVault</span>
+        </div>
+      </header>
+
+      <main className="w-full my-auto">
+        <AuthCard mode={signup ? 'signup' : 'login'} />
+      </main>
+
+      <footer className="text-center text-xs text-stone-400 dark:text-zinc-500 pt-8">
+        © NoteVault Academic Systems · Verified Peer Study Platform
+      </footer>
+    </div>
+  )
+}
