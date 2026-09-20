@@ -31,6 +31,9 @@ export default function App() {
             <Routes>
               {/* Public Unauthenticated Routes */}
               <Route path="/" element={<LandingPage />} />
+              <Route path="/auth" element={<Navigate to="/login" replace />} />
+              <Route path="/auth/login" element={<Navigate to="/login" replace />} />
+              <Route path="/auth/signup" element={<Navigate to="/signup" replace />} />
               <Route path="/login" element={<AuthPage signup={false} />} />
               <Route path="/signup" element={<AuthPage signup={true} />} />
 
